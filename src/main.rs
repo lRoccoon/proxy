@@ -1,22 +1,21 @@
 use serde_derive::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Duration};
 
 use clap::Parser;
 use proxy::*;
-use tokio::{
-    net::TcpListener,
-    task::{JoinHandle, JoinSet},
-};
-use tracing_log::log::{debug, info};
+use tokio::net::TcpListener;
+use tracing_log::log::{debug, error, info};
+
+const PKG_NAME: &str = env!("CARGO_PKG_NAME");
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    #[arg(short, long, value_name = "FILE")]
+    #[arg(short, long, value_name = "FILE", help = "Config file path")]
     config: Option<PathBuf>,
-    #[arg(short, long)]
+    #[arg(short, long, value_name = "ADDRESS", help = "Upstream address")]
     upstream: Option<String>,
-    #[arg(short, long)]
+    #[arg(short, long, value_name = "ADDRESS", help = "Bind local address")]
     bind: Option<String>,
 }
 #[derive(Default, Serialize, Deserialize)]
@@ -35,19 +34,21 @@ async fn main() {
     env_logger::init();
     let args = Args::parse();
     if args.config.is_none() && (args.bind.is_none() && args.upstream.is_none()) {
-        panic!("config or upstream not found");
+        panic!("bind address and upstream not found, please set config file");
     }
-    match args.config {
-        Some(path) => {
-            run_with_config(path).await;
-        }
-        None => {
-            if args.bind.is_none() || args.upstream.is_none() {
-                panic!("bind address or upstream not found");
-            }
-            run("proxy", &args.bind.unwrap(), &args.upstream.unwrap()).await;
-        }
+    if args.bind.is_none() && args.upstream.is_none() {
+        run_with_config(args.config).await;
+    } else if args.bind.is_none() || args.upstream.is_none() {
+        panic!("bind address and upstream not found, please set config file");
+    } else {
+        run("proxy", &args.bind.unwrap(), &args.upstream.unwrap()).await;
     }
+
+    match tokio::signal::ctrl_c().await {
+        Ok(()) => info!("stop proxy..."),
+        Err(err) => error!("unable to listen for shutdown signal: {err:?}"),
+    }
+    tokio::time::sleep(Duration::from_millis(100)).await;
 }
 
 async fn run(name: &str, bind: &str, upstream: &str) {
@@ -63,13 +64,14 @@ async fn run(name: &str, bind: &str, upstream: &str) {
     }
 }
 
-async fn run_with_config(path: PathBuf) {
-    let cfg: Config = confy::load_path(path).unwrap();
-    let mut set = JoinSet::new();
+async fn run_with_config(path: Option<PathBuf>) {
+    let cfg: Config = match path {
+        Some(path) => confy::load_path(path).unwrap(),
+        None => confy::load(PKG_NAME, "config.toml").unwrap(),
+    };
     for proxy in cfg.proxies {
-        set.spawn(async move {
+        tokio::spawn(async move {
             run(&proxy.name, &proxy.bind, &proxy.upstream).await;
         });
     }
-    while set.join_next().await.is_some() {}
 }
