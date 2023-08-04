@@ -4,7 +4,7 @@ use std::{path::PathBuf, time::Duration};
 use clap::Parser;
 use proxy::*;
 use tokio::net::TcpListener;
-use tracing_log::log::{debug, error, info};
+use tracing::log::{error, info};
 
 const PKG_NAME: &str = env!("CARGO_PKG_NAME");
 
@@ -58,8 +58,11 @@ async fn run(name: &str, bind: &str, upstream: &str) {
         let (stream, addr) = listener.accept().await.unwrap();
         info!("accept {name} connection from {addr:?}");
         let mut proxy = TCPProxy::new(name.to_string(), upstream.to_string());
+        let cloned_name = name.to_string();
         tokio::spawn(async move {
             let _ = proxy.run(stream).await;
+            let duration = proxy.get_duration();
+            info!("close {cloned_name} connection from {addr:?}, duration: {duration:?}");
         });
     }
 }
