@@ -1,0 +1,4 @@
+[[proxies]]
+name = "example"
+bind = "[::]:8080"
+upstream = "example.com:80"
