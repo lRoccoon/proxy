@@ -18,5 +18,9 @@ Options:
 # Docker
 
 ```
-docker run -d -v /path/to/config.toml:/app/config.toml git.herf.cc/roccoon/proxy:latest 
+docker run -d -it --name proxy \
+           --restart always \
+           --network host \
+           -v /path/to/config.toml:/app/config.toml \
+           git.herf.cc/roccoon/proxy:latest
 ```
